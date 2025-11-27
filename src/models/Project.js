@@ -1,14 +1,9 @@
-// src/models/Project.js
 import mongoose from "mongoose";
 
 const memberSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    role: {
-      type: String,
-      enum: ["owner", "leader", "member"],
-      default: "member",
-    },
+    role: { type: String, enum: ["owner", "leader", "member"], default: "member" }
   },
   { _id: false }
 );
@@ -16,9 +11,9 @@ const memberSchema = new mongoose.Schema(
 const projectSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    description: String,
+    description: { type: String },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    members: [memberSchema], // includes owner as "owner"
+    members: [memberSchema]
   },
   { timestamps: true }
 );

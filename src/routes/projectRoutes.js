@@ -1,168 +1,166 @@
-// src/routes/projectRoutes.js
 import express from "express";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
 import { auth } from "../middleware/auth.js";
-import Project from "../models/Project.js";
-import User from "../models/User.js";
 import { requireProjectRole } from "../middleware/roles.js";
+import Project from "../models/Project.js";
+import Invitation from "../models/Invitation.js";
+import User from "../models/User.js";
 
 const router = express.Router();
 
-// POST /api/projects  (create project, creator becomes owner)
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// Create project (current user becomes owner)
 router.post("/", auth, async (req, res) => {
   try {
     const { name, description } = req.body;
+    if (!name) return res.status(400).json({ message: "Name is required" });
 
     const project = await Project.create({
       name,
       description,
       owner: req.user._id,
-      members: [{ user: req.user._id, role: "owner" }],
+      members: [{ user: req.user._id, role: "owner" }]
     });
 
     res.status(201).json(project);
   } catch (err) {
-    console.error("Create project error:", err);
+    console.error("Create project error:", err.message);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// GET /api/projects/my  (projects where user is a member)
+// Get projects where user is a member
 router.get("/my", auth, async (req, res) => {
   try {
     const projects = await Project.find({
-      "members.user": req.user._id,
-    }).populate("owner", "username email");
+      $or: [
+        { owner: req.user._id },
+        { "members.user": req.user._id }
+      ]
+    }).sort({ createdAt: -1 });
+
     res.json(projects);
   } catch (err) {
-    console.error("Get my projects error:", err);
+    console.error("Get my projects error:", err.message);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// GET /api/projects/:projectId
-router.get("/:projectId", auth, async (req, res) => {
+// Invite to project by email (owner/leader)
+router.post("/:projectId/invite", auth, requireProjectRole(["owner", "leader"]), async (req, res) => {
   try {
-    const project = await Project.findById(req.params.projectId)
-      .populate("owner", "username email avatarUrl")
-      .populate("members.user", "username email avatarUrl");
+    const { email, role = "member" } = req.body;
+    const { project } = req;
 
-    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+    if (!["member", "leader"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
 
-    const isMember = project.members.some(
-      (m) => m.user._id.toString() === req.user._id.toString()
-    );
-    if (!isMember)
-      return res.status(403).json({ message: "Not a member of this project" });
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (
+      existingUser &&
+      project.members.some((m) => m.user.toString() === existingUser._id.toString())
+    ) {
+      return res
+        .status(400)
+        .json({ message: "User is already a member of this project" });
+    }
 
-    res.json(project);
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const invitation = await Invitation.create({
+      project: project._id,
+      email: email.toLowerCase(),
+      role,
+      token,
+      invitedBy: req.user._id,
+      expiresAt
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL || "https://your-frontend-url.com";
+    const acceptUrl = `${frontendUrl}/accept-invite?token=${token}`;
+
+    await transporter.sendMail({
+      from: `"Sentinel" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `You've been invited to project "${project.name}"`,
+      html: `
+        <p>You have been invited to join the project <b>${project.name}</b> in Sentinel.</p>
+        <p>Role: <b>${role}</b></p>
+        <p>Click the link below to accept the invitation:</p>
+        <p><a href="${acceptUrl}">${acceptUrl}</a></p>
+        <p>This link expires on ${expiresAt.toUTCString()}.</p>
+      `
+    });
+
+    res.status(201).json({ message: "Invitation sent", invitationId: invitation._id });
   } catch (err) {
-    console.error("Get project error:", err);
+    console.error("Invite error:", err.message);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// POST /api/projects/:projectId/members  (owner/leader invite member)
-router.post(
-  "/:projectId/members",
-  auth,
-  requireProjectRole(["owner", "leader"]),
-  async (req, res) => {
-    try {
-      const { userId, role = "member" } = req.body;
-      const { project } = req;
+// Accept invite (logged-in user)
+router.post("/accept-invite", auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ message: "Token is required" });
 
-      if (!["leader", "member"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
-
-      const user = await User.findById(userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      const existing = project.members.find(
-        (m) => m.user.toString() === userId
-      );
-      if (existing) {
-        return res.status(400).json({ message: "User already a member" });
-      }
-
-      project.members.push({ user: userId, role });
-      await project.save();
-
-      res.json(project);
-    } catch (err) {
-      console.error("Add member error:", err);
-      res.status(500).json({ message: "Server error" });
+    const invitation = await Invitation.findOne({ token });
+    if (!invitation) {
+      return res.status(400).json({ message: "Invalid invitation token" });
     }
-  }
-);
 
-// PATCH /api/projects/:projectId/members/:memberId  (change role)
-router.patch(
-  "/:projectId/members/:memberId",
-  auth,
-  requireProjectRole(["owner"]),
-  async (req, res) => {
-    try {
-      const { role } = req.body;
-      const { project } = req;
-      const { memberId } = req.params;
-
-      if (!["leader", "member"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
-
-      const member = project.members.find(
-        (m) => m.user.toString() === memberId
-      );
-      if (!member) {
-        return res.status(404).json({ message: "Member not found" });
-      }
-
-      if (member.role === "owner") {
-        return res.status(400).json({ message: "Cannot change owner role" });
-      }
-
-      member.role = role;
-      await project.save();
-      res.json(project);
-    } catch (err) {
-      console.error("Update member role error:", err);
-      res.status(500).json({ message: "Server error" });
+    if (invitation.status !== "pending" || invitation.expiresAt < new Date()) {
+      return res.status(400).json({ message: "Invitation has expired or already used" });
     }
-  }
-);
 
-// DELETE /api/projects/:projectId/members/:memberId  (remove member)
-router.delete(
-  "/:projectId/members/:memberId",
-  auth,
-  requireProjectRole(["owner", "leader"]),
-  async (req, res) => {
-    try {
-      const { project } = req;
-      const { memberId } = req.params;
-
-      const member = project.members.find(
-        (m) => m.user.toString() === memberId
-      );
-      if (!member) {
-        return res.status(404).json({ message: "Member not found" });
-      }
-
-      if (member.role === "owner") {
-        return res.status(400).json({ message: "Cannot remove owner" });
-      }
-
-      project.members = project.members.filter(
-        (m) => m.user.toString() !== memberId
-      );
-      await project.save();
-      res.json(project);
-    } catch (err) {
-      console.error("Remove member error:", err);
-      res.status(500).json({ message: "Server error" });
+    if (invitation.email.toLowerCase() !== req.user.email.toLowerCase()) {
+      return res.status(403).json({
+        message: "This invitation was sent to a different email address"
+      });
     }
+
+    const project = await Project.findById(invitation.project);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    const alreadyMember = project.members.some(
+      (m) => m.user.toString() === req.user._id.toString()
+    );
+    if (!alreadyMember) {
+      project.members.push({
+        user: req.user._id,
+        role: invitation.role
+      });
+      await project.save();
+    }
+
+    invitation.status = "accepted";
+    await invitation.save();
+
+    res.json({
+      message: "You have joined the project",
+      projectId: project._id,
+      role: invitation.role
+    });
+  } catch (err) {
+    console.error("Accept invite error:", err.message);
+    res.status(500).json({ message: "Server error" });
   }
-);
+});
 
 export default router;

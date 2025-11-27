@@ -1,31 +1,41 @@
-// src/middleware/roles.js
 import Project from "../models/Project.js";
 
-export const requireProjectRole =
-  (roles = ["owner", "leader"]) =>
-  async (req, res, next) => {
-    const projectId = req.params.projectId || req.body.projectId;
+// Load project from :projectId and check user role
+export const requireProjectRole = (allowedRoles = []) => {
+  return async (req, res, next) => {
+    try {
+      const projectId = req.params.projectId || req.params.id;
+      if (!projectId) {
+        return res.status(400).json({ message: "Project id is required" });
+      }
 
-    if (!projectId) {
-      return res.status(400).json({ message: "projectId is required" });
+      const project = await Project.findById(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const userId = req.user._id.toString();
+      let role = null;
+
+      if (project.owner.toString() === userId) {
+        role = "owner";
+      } else {
+        const member = project.members.find(
+          (m) => m.user.toString() === userId
+        );
+        role = member?.role || null;
+      }
+
+      if (!role || (allowedRoles.length && !allowedRoles.includes(role))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      req.project = project;
+      req.projectRole = role;
+      next();
+    } catch (err) {
+      console.error("requireProjectRole error:", err.message);
+      res.status(500).json({ message: "Server error" });
     }
-
-    const project = await Project.findById(projectId);
-    if (!project) return res.status(404).json({ message: "Project not found" });
-
-    const membership = project.members.find(
-      (m) => m.user.toString() === req.user._id.toString()
-    );
-
-    if (!membership) {
-      return res.status(403).json({ message: "Not a member of this project" });
-    }
-
-    if (!roles.includes(membership.role)) {
-      return res.status(403).json({ message: "Insufficient permissions" });
-    }
-
-    req.project = project;
-    req.membership = membership;
-    next();
   };
+};

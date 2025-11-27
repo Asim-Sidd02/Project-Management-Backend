@@ -1,13 +1,15 @@
-// src/models/User.js
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
   {
-    email: { type: String, required: true, unique: true, lowercase: true },
-    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    username: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
-    avatarUrl: { type: String }, // DP (can store Firebase URL, Cloudinary, etc.)
+    avatarUrl: { type: String },
+
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date }
   },
   { timestamps: true }
 );
