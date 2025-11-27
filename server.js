@@ -6,12 +6,13 @@ import dotenv from "dotenv";
 import authRoutes from "./src/routes/authRoutes.js";
 import projectRoutes from "./src/routes/projectRoutes.js";
 import taskRoutes from "./src/routes/taskRoutes.js";
-
+import userRoutes from "./src/routes/userRoutes.js";
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use("/api/users", userRoutes);
 
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
