@@ -54,47 +54,141 @@ router.get("/my", auth, async (req, res) => {
   }
 });
 
-// Invite to project by email (owner/leader)
-router.post("/:projectId/invite", auth, requireProjectRole(["owner", "leader"]), async (req, res) => {
+
+router.post(
+  "/:projectId/invite",
+  auth,
+  requireProjectRole(["owner", "leader"]),
+  async (req, res) => {
+    try {
+      const { email, role = "member" } = req.body;
+      const { project } = req;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+      if (!["member", "leader"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      // 1) Check user exists
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        return res.status(404).json({ message: "User does not exist" });
+      }
+
+      // 2) Check if already a member
+      const alreadyMember = project.members.some(
+        (m) => m.user.toString() === user._id.toString()
+      );
+      if (alreadyMember) {
+        return res.status(400).json({ message: "User already in project" });
+      }
+
+      // 3) Add as member
+      project.members.push({ user: user._id, role });
+      await project.save();
+
+      res.status(200).json({
+        message: "User successfully added to project",
+        userId: user._id,
+        role,
+      });
+    } catch (err) {
+      console.error("Invite error:", err.message);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+// GET /api/projects/:projectId/details
+// Returns project with populated members + current user role
+router.get("/:projectId/details", auth, async (req, res) => {
   try {
-    const { email, role = "member" } = req.body;
-    const { project } = req;
+    const { projectId } = req.params;
 
-    if (!email) {
-      return res.status(400).json({ message: "Email is required" });
-    }
-    if (!["member", "leader"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
-    }
+    const project = await Project.findById(projectId)
+      .populate("members.user", "username email avatarUrl")
+      .lean();
 
-    // Check if user exists in database
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
-      return res.status(404).json({ message: "User does not exist" });
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
     }
 
-    // Check if already member
-    const alreadyMember = project.members.some(
-      (m) => m.user.toString() === user._id.toString()
-    );
-    if (alreadyMember) {
-      return res.status(400).json({ message: "User already in project" });
+    const userId = req.user._id.toString();
+    let role = null;
+
+    if (project.owner.toString() === userId) {
+      role = "owner";
+    } else {
+      const member = project.members.find(
+        (m) => m.user && m.user._id.toString() === userId
+      );
+      role = member?.role || null;
     }
 
-    // Add user to project
-    project.members.push({ user: user._id, role });
-    await project.save();
+    if (!role) {
+      return res
+        .status(403)
+        .json({ message: "You are not a member of this project" });
+    }
 
-    return res.status(200).json({
-      message: "User successfully added to project",
-      userId: user._id,
-      role
+    res.json({
+      project,
+      currentRole: role,
     });
   } catch (err) {
-    console.error("Invite error:", err.message);
+    console.error("Get project details error:", err.message);
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// DELETE /api/projects/:projectId/members/:userId
+// Owner/leader can remove members (cannot remove owner)
+router.delete(
+  "/:projectId/members/:userId",
+  auth,
+  requireProjectRole(["owner", "leader"]),
+  async (req, res) => {
+    try {
+      const { project } = req;
+      const { userId } = req.params;
+
+      // Don't allow removing owner
+      if (project.owner.toString() === userId) {
+        return res
+          .status(400)
+          .json({ message: "Cannot remove project owner" });
+      }
+
+      const member = project.members.find(
+        (m) => m.user.toString() === userId
+      );
+      if (!member) {
+        return res.status(404).json({ message: "Member not found" });
+      }
+
+      // If remover is only leader, don't let them remove other leaders/owner
+      if (
+        req.projectRole === "leader" &&
+        member.role !== "member"
+      ) {
+        return res
+          .status(403)
+          .json({ message: "Leaders can only remove members" });
+      }
+
+      project.members = project.members.filter(
+        (m) => m.user.toString() !== userId
+      );
+      await project.save();
+
+      res.json({ message: "Member removed" });
+    } catch (err) {
+      console.error("Remove member error:", err.message);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 
 
 export default router;
