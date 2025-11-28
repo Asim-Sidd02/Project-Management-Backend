@@ -18,6 +18,7 @@ router.get("/me", auth, async (req, res) => {
 });
 
 // PUT /api/users/me  -> update username and/or avatar (base64)
+// PUT /api/users/me
 router.put("/me", auth, async (req, res) => {
   try {
     const { username, avatarBase64 } = req.body;
@@ -33,12 +34,14 @@ router.put("/me", auth, async (req, res) => {
       user.username = username;
     }
 
-    if (avatarBase64 != null && avatarBase64.isNotEmpty != null) {
-      // simple: store base64 string in avatarUrl field
+    // Correct check for base64 string
+    if (typeof avatarBase64 === "string" && avatarBase64.trim().length > 0) {
+      console.log("🔥 Updating avatar, size:", avatarBase64.length);
       user.avatarUrl = avatarBase64;
     }
 
     await user.save();
+
     const safeUser = user.toObject();
     delete safeUser.password;
 
@@ -48,6 +51,7 @@ router.put("/me", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 // PATCH /api/users/change-password
 router.patch("/change-password", auth, async (req, res) => {
