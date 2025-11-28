@@ -1,7 +1,7 @@
 import express from "express";
 import ChatRoom from "../models/ChatRoom.js";
 import Message from "../models/Message.js";
-import requireAuth from "../middleware/authMiddleware.js";
+import { auth } from "../middleware/auth.js";  
 import Project from "../models/Project.js";
 
 const router = express.Router();
@@ -10,9 +10,9 @@ const router = express.Router();
  * GET /api/chat/my-rooms
  * All chat rooms where current user is a member
  */
-router.get("/my-rooms", requireAuth, async (req, res) => {
+router.get("/my-rooms", auth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id; // 👈 consistent with other routes
 
     const rooms = await ChatRoom.find({ members: userId })
       .populate("project", "name")
@@ -20,7 +20,7 @@ router.get("/my-rooms", requireAuth, async (req, res) => {
 
     return res.json(rooms);
   } catch (err) {
-    console.error("my-rooms error:", err);
+    console.error("my-rooms error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -29,9 +29,9 @@ router.get("/my-rooms", requireAuth, async (req, res) => {
  * GET /api/chat/project/:projectId/room
  * Get (or ensure) the chat room for a project that the user is part of
  */
-router.get("/project/:projectId/room", requireAuth, async (req, res) => {
+router.get("/project/:projectId/room", auth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const { projectId } = req.params;
 
     const project = await Project.findById(projectId);
@@ -41,8 +41,9 @@ router.get("/project/:projectId/room", requireAuth, async (req, res) => {
 
     // ensure user is a member of the project
     const isMember =
-      project.owner.toString() === userId ||
-      project.members.some((m) => m.user.toString() === userId);
+      project.owner.toString() === userId.toString() ||
+      project.members.some((m) => m.user.toString() === userId.toString());
+
     if (!isMember) {
       return res
         .status(403)
@@ -63,7 +64,7 @@ router.get("/project/:projectId/room", requireAuth, async (req, res) => {
 
     return res.json(room);
   } catch (err) {
-    console.error("project room error:", err);
+    console.error("project room error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -73,10 +74,10 @@ router.get("/project/:projectId/room", requireAuth, async (req, res) => {
  * Create a custom group chat (not tied to a project)
  * body: { name, memberIds?: [userId] }
  */
-router.post("/rooms", requireAuth, async (req, res) => {
+router.post("/rooms", auth, async (req, res) => {
   try {
     const { name, memberIds = [] } = req.body;
-    const userId = req.user.id;
+    const userId = req.user._id;
 
     if (!name) {
       return res.status(400).json({ message: "Room name is required" });
@@ -95,7 +96,7 @@ router.post("/rooms", requireAuth, async (req, res) => {
 
     return res.status(201).json(room);
   } catch (err) {
-    console.error("create room error:", err);
+    console.error("create room error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -104,9 +105,9 @@ router.post("/rooms", requireAuth, async (req, res) => {
  * GET /api/chat/rooms/:roomId/messages?limit=30
  * Fetch last N messages in room
  */
-router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
+router.get("/rooms/:roomId/messages", auth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const { roomId } = req.params;
     const limit = parseInt(req.query.limit || "30", 10);
 
@@ -116,7 +117,10 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
     }
 
     // check membership
-    if (!room.members.some((m) => m.toString() === userId)) {
+    const isMember = room.members.some(
+      (m) => m.toString() === userId.toString()
+    );
+    if (!isMember) {
       return res
         .status(403)
         .json({ message: "You are not a member of this room" });
@@ -132,7 +136,7 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
     return res.json(messages);
   } catch (err) {
-    console.error("get messages error:", err);
+    console.error("get messages error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
@@ -141,9 +145,9 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
  * POST /api/chat/rooms/:roomId/messages
  * body: { type, text, mediaUrl }
  */
-router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
+router.post("/rooms/:roomId/messages", auth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const { roomId } = req.params;
     let { type, text, mediaUrl } = req.body;
 
@@ -154,7 +158,10 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
       return res.status(404).json({ message: "Chat room not found" });
     }
 
-    if (!room.members.some((m) => m.toString() === userId)) {
+    const isMember = room.members.some(
+      (m) => m.toString() === userId.toString()
+    );
+    if (!isMember) {
       return res
         .status(403)
         .json({ message: "You are not a member of this room" });
@@ -188,7 +195,7 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
     return res.status(201).json(populated);
   } catch (err) {
-    console.error("send message error:", err);
+    console.error("send message error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
