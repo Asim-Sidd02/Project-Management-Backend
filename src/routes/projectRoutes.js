@@ -6,6 +6,7 @@ import { requireProjectRole } from "../middleware/roles.js";
 import Project from "../models/Project.js";
 import Invitation from "../models/Invitation.js";
 import User from "../models/User.js";
+import ChatRoom from "../models/ChatRoom.js"; 
 
 const router = express.Router();
 
@@ -17,12 +18,13 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Create project (current user becomes owner)
+// Create project (current user becomes owner) + create project chat room
 router.post("/", auth, async (req, res) => {
   try {
     const { name, description } = req.body;
     if (!name) return res.status(400).json({ message: "Name is required" });
 
+    // 1) Create project
     const project = await Project.create({
       name,
       description,
@@ -30,7 +32,28 @@ router.post("/", auth, async (req, res) => {
       members: [{ user: req.user._id, role: "owner" }]
     });
 
-    res.status(201).json(project);
+    // 2) Create a chat room for this project
+    const room = await ChatRoom.create({
+      name,
+      project: project._id,
+      isProjectRoom: true,
+      members: [req.user._id],
+      createdBy: req.user._id
+    });
+
+    // 3) Optionally save reference in project if your schema has `chatRoom` field
+    if (project.chatRoom === undefined) {
+      // no field in schema; ignore
+    } else {
+      project.chatRoom = room._id;
+      await project.save();
+    }
+
+    // keep response shape similar but now include chat room
+    res.status(201).json({
+      project,
+      chatRoom: room
+    });
   } catch (err) {
     console.error("Create project error:", err.message);
     res.status(500).json({ message: "Server error" });
@@ -54,7 +77,7 @@ router.get("/my", auth, async (req, res) => {
   }
 });
 
-
+// Invite user (in-app only) and add to project chat as well
 router.post(
   "/:projectId/invite",
   auth,
@@ -89,6 +112,12 @@ router.post(
       project.members.push({ user: user._id, role });
       await project.save();
 
+      // 4) Also add them to the project chat room
+      await ChatRoom.updateOne(
+        { project: project._id },               // find project chat
+        { $addToSet: { members: user._id } }    // avoid duplicates
+      );
+
       res.status(200).json({
         message: "User successfully added to project",
         userId: user._id,
@@ -100,6 +129,7 @@ router.post(
     }
   }
 );
+
 // GET /api/projects/:projectId/details
 // Returns project with populated members + current user role
 router.get("/:projectId/details", auth, async (req, res) => {
@@ -177,10 +207,17 @@ router.delete(
           .json({ message: "Leaders can only remove members" });
       }
 
+      // 1) Remove from project
       project.members = project.members.filter(
         (m) => m.user.toString() !== userId
       );
       await project.save();
+
+      // 2) Also remove from project chat room
+      await ChatRoom.updateOne(
+        { project: project._id },
+        { $pull: { members: userId } }
+      );
 
       res.json({ message: "Member removed" });
     } catch (err) {
@@ -189,6 +226,5 @@ router.delete(
     }
   }
 );
-
 
 export default router;

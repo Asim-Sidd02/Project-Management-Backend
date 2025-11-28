@@ -13,7 +13,13 @@ const projectSchema = new mongoose.Schema(
     name: { type: String, required: true },
     description: { type: String },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    chatRoom: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "ChatRoom",
+  default: null,
+},
     members: [memberSchema]
+    
   },
   { timestamps: true }
 );
