@@ -51,6 +51,24 @@ router.put("/me", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+// GET /api/users/search?query=username
+router.get("/search", auth, async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) return res.json([]);
+
+    const users = await User.find({
+      username: { $regex: query, $options: "i" },
+    })
+      .select("_id username email avatarUrl")
+      .limit(20);
+
+    res.json(users);
+  } catch (err) {
+    console.error("User search error:", err.message);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 
 // PATCH /api/users/change-password
