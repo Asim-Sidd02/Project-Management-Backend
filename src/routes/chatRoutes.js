@@ -3,6 +3,7 @@ import ChatRoom from "../models/ChatRoom.js";
 import Message from "../models/Message.js";
 import { auth } from "../middleware/auth.js";  
 import Project from "../models/Project.js";
+import { getIO } from "../socket.js";
 
 const router = express.Router();
 
@@ -179,21 +180,29 @@ router.post("/rooms/:roomId/messages", auth, async (req, res) => {
         .json({ message: "Media message requires mediaUrl" });
     }
 
-    const message = await Message.create({
-      room: roomId,
-      sender: userId,
-      type,
-      text,
-      mediaUrl,
-    });
+ const message = await Message.create({
+  room: roomId,
+  sender: userId,
+  type,
+  text,
+  mediaUrl,
+});
 
-    // touch room.updatedAt so my-rooms sorting works
-    room.updatedAt = new Date();
-    await room.save();
+room.updatedAt = new Date();
+await room.save();
 
-    const populated = await message.populate("sender", "username avatarUrl");
+const populated = await message.populate("sender", "username avatarUrl");
 
-    return res.status(201).json(populated);
+// 🔥 Emit real-time event to all clients in this room
+try {
+  const io = getIO();
+  io.to(roomId.toString()).emit("message:new", populated);
+} catch (e) {
+  console.error("Socket emit error:", e.message);
+}
+
+return res.status(201).json(populated);
+
   } catch (err) {
     console.error("send message error:", err.message);
     return res.status(500).json({ message: "Server error" });
