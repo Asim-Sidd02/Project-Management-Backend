@@ -14,16 +14,17 @@ const router = express.Router();
  */
 router.get("/my-rooms", requireAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user._id;   // support both shapes
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
     // 1) Find rooms where this user is a member
     const rooms = await ChatRoom.find({ members: userId })
+      .populate("members", "username avatarUrl")
       .populate("project", "name")
       .sort({ updatedAt: -1 })
-      .lean(); // plain JS objects
+      .lean();
 
-    if (rooms.length === 0) {
+    if (!rooms.length) {
       return res.json([]);
     }
 
@@ -70,18 +71,18 @@ router.get("/my-rooms", requireAuth, async (req, res) => {
       unreadByRoom.set(u._id.toString(), u.count);
     });
 
-    // 4) Merge into rooms
+    // 4) Merge into a clean response for Flutter
     const result = rooms.map((r) => {
       const idStr = r._id.toString();
       const lm = lastByRoom.get(idStr);
       const unread = unreadByRoom.get(idStr) || 0;
 
+      // ---------- LAST MESSAGE TEXT ----------
       let lastMessageText = "";
       if (lm) {
         if (lm.lastText && lm.lastText.trim().length > 0) {
           lastMessageText = lm.lastText.trim();
         } else {
-          // fallback text based on type
           const type = lm.lastType || "text";
           switch (type) {
             case "image":
@@ -102,16 +103,53 @@ router.get("/my-rooms", requireAuth, async (req, res) => {
         }
       }
 
-      // If you want project name flat like before:
+      // ---------- DISPLAY NAME + AVATAR ----------
+      const members = r.members || [];
+      const isProjectRoom = !!r.isProjectRoom;
+      const isGroupExplicit = r.isGroup ?? false;
+
+      let isGroup = isGroupExplicit;
+      if (!isProjectRoom && members.length > 2) {
+        isGroup = true;
+      }
+
+      let displayName = r.name;
+      let avatarBase64 = r.avatarUrl || null; // if you store room avatar
+
+      // project room → name from project
+      if (isProjectRoom && r.project && typeof r.project === "object") {
+        displayName = r.project.name || displayName;
+      }
+
+      // direct chat → show the OTHER user
+      if (!isProjectRoom && !isGroup && members.length >= 2) {
+        const userIdStr = userId.toString();
+        const other = members.find(
+          (m) => m._id.toString() !== userIdStr
+        );
+        if (other) {
+          displayName = other.username || displayName;
+          if (other.avatarUrl) {
+            avatarBase64 = other.avatarUrl;  // 👈 this is what Flutter uses
+          }
+        }
+      }
+
+      // projectName flatten (like you already used)
       const projectName =
         r.project && typeof r.project === "object" ? r.project.name : undefined;
 
       return {
-        ...r,
+        id: r._id,
+        name: displayName,
+        isProjectRoom,
         projectName,
+        isGroup,
+        avatarBase64,                 // 👈 used by ChatListScreen
         unreadCount: unread,
         lastMessageText,
         lastMessageAt: lm?.lastCreatedAt || r.updatedAt,
+        updatedAt: r.updatedAt,
       };
     });
 
