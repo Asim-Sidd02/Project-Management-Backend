@@ -1,7 +1,7 @@
 import express from "express";
 import ChatRoom from "../models/ChatRoom.js";
 import Message from "../models/Message.js";
-import { auth } from "../middleware/auth.js";  
+import { auth as requireAuth } from "../middleware/auth.js";
 import Project from "../models/Project.js";
 import { getIO } from "../socket.js";
 import mongoose from "mongoose";
