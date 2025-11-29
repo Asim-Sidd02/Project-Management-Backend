@@ -127,7 +127,8 @@ router.get("/my-rooms", requireAuth, async (req, res) => {
  * GET /api/chat/project/:projectId/room
  * Get (or ensure) the chat room for a project that the user is part of
  */
-router.get("/project/:projectId/room", auth, async (req, res) => {
+router.get("/project/:projectId/room", requireAuth, async (req, res) => {
+
   try {
     const userId = req.user._id;
     const { projectId } = req.params;
@@ -172,7 +173,7 @@ router.get("/project/:projectId/room", auth, async (req, res) => {
  * Create a custom group chat (not tied to a project)
  * body: { name, memberIds?: [userId] }
  */
-router.post("/rooms", auth, async (req, res) => {
+router.post("/rooms", requireAuth, async (req, res) => {
   try {
     const { name, memberIds = [] } = req.body;
     const userId = req.user._id;
@@ -252,7 +253,7 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
  * POST /api/chat/rooms/:roomId/messages
  * body: { type, text, mediaUrl }
  */
-router.post("/rooms/:roomId/messages", auth, async (req, res) => {
+router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
   try {
     const userId = req.user._id;
     const { roomId } = req.params;
