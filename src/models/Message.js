@@ -1,42 +1,38 @@
+// models/Message.js
 import mongoose from "mongoose";
 
 const { Schema } = mongoose;
 
-const messageSchema = new Schema(
+const MessageSchema = new Schema(
   {
     room: {
       type: Schema.Types.ObjectId,
       ref: "ChatRoom",
       required: true,
     },
-
     sender: {
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-
-    // text / image / video / audio
     type: {
       type: String,
-      enum: ["text", "image", "video", "audio"],
+      enum: ["text", "image", "video", "audio", "file"],
       default: "text",
     },
+    text: { type: String },
+    mediaUrl: { type: String },
 
-    // For normal messages
-    text: {
-      type: String,
-      trim: true,
-    },
-
-    // For attachments – URL to your storage (S3 / Cloudinary / Firebase, etc.)
-    mediaUrl: {
-      type: String,
-      trim: true,
-    },
+    // 👇 NEW: who has already seen this message
+    seenBy: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true }
 );
 
-const Message = mongoose.model("Message", messageSchema);
+const Message = mongoose.model("Message", MessageSchema);
 export default Message;

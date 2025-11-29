@@ -11,20 +11,116 @@ const router = express.Router();
  * GET /api/chat/my-rooms
  * All chat rooms where current user is a member
  */
-router.get("/my-rooms", auth, async (req, res) => {
+router.get("/my-rooms", requireAuth, async (req, res) => {
   try {
-    const userId = req.user._id; // 👈 consistent with other routes
+    const userId = req.user.id;
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
+    // 1) Find rooms where this user is a member
     const rooms = await ChatRoom.find({ members: userId })
       .populate("project", "name")
-      .sort({ updatedAt: -1 });
+      .sort({ updatedAt: -1 })
+      .lean(); // plain JS objects
 
-    return res.json(rooms);
+    if (rooms.length === 0) {
+      return res.json([]);
+    }
+
+    const roomIds = rooms.map((r) => r._id);
+
+    // 2) Get last message per room
+    const lastMessages = await Message.aggregate([
+      { $match: { room: { $in: roomIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$room",
+          lastText: { $first: "$text" },
+          lastType: { $first: "$type" },
+          lastCreatedAt: { $first: "$createdAt" },
+        },
+      },
+    ]);
+
+    // 3) Get unread count per room for this user
+    const unreadCounts = await Message.aggregate([
+      {
+        $match: {
+          room: { $in: roomIds },
+          sender: { $ne: userObjectId },
+          seenBy: { $ne: userObjectId },
+        },
+      },
+      {
+        $group: {
+          _id: "$room",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const lastByRoom = new Map();
+    lastMessages.forEach((lm) => {
+      lastByRoom.set(lm._id.toString(), lm);
+    });
+
+    const unreadByRoom = new Map();
+    unreadCounts.forEach((u) => {
+      unreadByRoom.set(u._id.toString(), u.count);
+    });
+
+    // 4) Merge into rooms
+    const result = rooms.map((r) => {
+      const idStr = r._id.toString();
+      const lm = lastByRoom.get(idStr);
+      const unread = unreadByRoom.get(idStr) || 0;
+
+      let lastMessageText = "";
+      if (lm) {
+        if (lm.lastText && lm.lastText.trim().length > 0) {
+          lastMessageText = lm.lastText.trim();
+        } else {
+          // fallback text based on type
+          const type = lm.lastType || "text";
+          switch (type) {
+            case "image":
+              lastMessageText = "📷 Photo";
+              break;
+            case "video":
+              lastMessageText = "🎬 Video";
+              break;
+            case "audio":
+              lastMessageText = "🎙 Voice message";
+              break;
+            case "file":
+              lastMessageText = "📎 File";
+              break;
+            default:
+              lastMessageText = "";
+          }
+        }
+      }
+
+      // If you want project name flat like before:
+      const projectName =
+        r.project && typeof r.project === "object" ? r.project.name : undefined;
+
+      return {
+        ...r,
+        projectName,
+        unreadCount: unread,
+        lastMessageText,
+        lastMessageAt: lm?.lastCreatedAt || r.updatedAt,
+      };
+    });
+
+    return res.json(result);
   } catch (err) {
-    console.error("my-rooms error:", err.message);
+    console.error("my-rooms error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 /**
  * GET /api/chat/project/:projectId/room
@@ -106,9 +202,9 @@ router.post("/rooms", auth, async (req, res) => {
  * GET /api/chat/rooms/:roomId/messages?limit=30
  * Fetch last N messages in room
  */
-router.get("/rooms/:roomId/messages", auth, async (req, res) => {
+router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id;
     const { roomId } = req.params;
     const limit = parseInt(req.query.limit || "30", 10);
 
@@ -117,30 +213,39 @@ router.get("/rooms/:roomId/messages", auth, async (req, res) => {
       return res.status(404).json({ message: "Chat room not found" });
     }
 
-    // check membership
-    const isMember = room.members.some(
-      (m) => m.toString() === userId.toString()
-    );
-    if (!isMember) {
+    if (!room.members.some((m) => m.toString() === userId)) {
       return res
         .status(403)
         .json({ message: "You are not a member of this room" });
     }
 
+    // ✅ fetch last messages
     const messages = await Message.find({ room: roomId })
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate("sender", "username avatarUrl");
 
-    // reverse to chronological
     messages.reverse();
+
+    // ✅ mark all non-self messages as seen
+    await Message.updateMany(
+      {
+        room: roomId,
+        sender: { $ne: userId },
+        seenBy: { $ne: userId },
+      },
+      {
+        $addToSet: { seenBy: userId },
+      }
+    );
 
     return res.json(messages);
   } catch (err) {
-    console.error("get messages error:", err.message);
+    console.error("get messages error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 /**
  * POST /api/chat/rooms/:roomId/messages
