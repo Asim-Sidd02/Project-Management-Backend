@@ -4,6 +4,7 @@ import Message from "../models/Message.js";
 import { auth } from "../middleware/auth.js";  
 import Project from "../models/Project.js";
 import { getIO } from "../socket.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
