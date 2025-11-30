@@ -13,7 +13,7 @@ import projectRoutes from "./src/routes/projectRoutes.js";
 import taskRoutes from "./src/routes/taskRoutes.js";
 import userRoutes from "./src/routes/userRoutes.js";
 import chatRoutes from "./src/routes/chatRoutes.js";
-import notificationRoutes from "./routes/notificationRoutes.js";
+import notificationRoutes from "./src/routes/notificationRoutes.js";
 dotenv.config();
 
 const app = express();
