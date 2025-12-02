@@ -1,6 +1,6 @@
 
 import { getMessaging } from "../src/firebaseAdmin.js";
-import User from "../models/User.js";
+import User from "./models/User.js";
 
 export async function sendPushToUserIds(userIds, payload) {
   const messaging = getMessaging();
