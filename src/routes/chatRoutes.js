@@ -364,13 +364,12 @@ try {
       }
     }
 
-    await sendPushToUser(member, {
-      title: roomPopulated.name || "New message",
-      body: `${populated.sender.username || "Someone"}: ${bodyPreview}`,
+       await sendPushToUserIds(memberIds, {
+      title: senderName,
+      body: body || "New message",
       data: {
         type: "chat",
         roomId: roomId.toString(),
-        messageId: populated._id.toString(),
       },
     });
   }
