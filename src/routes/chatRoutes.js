@@ -6,7 +6,7 @@ import Project from "../models/Project.js";
 import { getIO } from "../socket.js";
 import mongoose from "mongoose";
 import { sendPushToUserIds } from "./../pushService.js";
-import { sendPushToUser } from "../notificationService.js";
+
 
 
 const router = express.Router();
