@@ -332,53 +332,57 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
     const populated = await message.populate("sender", "username avatarUrl");
 
     // 4) Emit real-time message over Socket.IO
-    try {
-      const io = getIO();
-      io.to(roomId.toString()).emit("message:new", populated);
-    } catch (e) {
-      console.error("Socket emit error:", e.message);
+   // 🔥 Emit real-time event to all clients in this room
+try {
+  const io = getIO();
+  io.to(roomId.toString()).emit("message:new", populated);
+} catch (e) {
+  console.error("Socket emit error:", e.message);
+}
+
+// 5) Send push notifications to other members
+try {
+  // all room members except the sender
+  const recipientIds = room.members
+    .map((m) => m.toString())
+    .filter((id) => id !== userId.toString());
+
+  console.log("🔔 Chat push recipients:", recipientIds);
+
+  if (recipientIds.length > 0) {
+    const senderName = populated.sender?.username || "New message";
+
+    let body = "";
+    switch (type) {
+      case "image":
+        body = "📷 Photo";
+        break;
+      case "video":
+        body = "🎬 Video";
+        break;
+      case "audio":
+        body = "🎙 Voice message";
+        break;
+      case "file":
+        body = "📎 File";
+        break;
+      default:
+        body = text || "New message";
     }
 
-    // 5) Send push notifications to other members
-    try {
-      // all room members except the sender
-      const recipientIds = room.members
-        .map((m) => m.toString())
-        .filter((id) => id !== userId.toString());
+    await sendPushToUserIds(recipientIds, {
+      title: senderName,
+      body,
+      data: {
+        type: "chat",
+        roomId: roomId.toString(),
+      },
+    });
+  }
+} catch (e) {
+  console.error("Chat push error:", e.message);
+}
 
-      if (recipientIds.length > 0) {
-        const senderName = populated.sender?.username || "New message";
-
-        let body = "";
-        switch (type) {
-          case "image":
-            body = "📷 Photo";
-            break;
-          case "video":
-            body = "🎬 Video";
-            break;
-          case "audio":
-            body = "🎙 Voice message";
-            break;
-          case "file":
-            body = "📎 File";
-            break;
-          default:
-            body = text || "New message";
-        }
-
-        await sendPushToUserIds(recipientIds, {
-          title: senderName,
-          body,
-          data: {
-            type: "chat",
-            roomId: roomId.toString(),
-          },
-        });
-      }
-    } catch (e) {
-      console.error("Chat push error:", e.message);
-    }
 
     // 6) Final API response
     return res.status(201).json(populated);
