@@ -1,4 +1,4 @@
-// src/services/notificationService.js
+
 import { getMessaging } from "../firebaseAdmin.js";
 import User from "../models/User.js";
 

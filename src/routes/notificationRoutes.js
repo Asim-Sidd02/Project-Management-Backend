@@ -2,7 +2,7 @@
 import express from "express";
 import { auth } from "../middleware/auth.js";
 import User from "../models/User.js";
-import { sendPushToUserIds } from "../services/notificationService.js";
+import { sendPushToUserIds } from "./../notificationService.js";
 
 const router = express.Router();
 
