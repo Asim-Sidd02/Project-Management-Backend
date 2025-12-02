@@ -277,6 +277,10 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
  * POST /api/chat/rooms/:roomId/messages
  * body: { type, text, mediaUrl }
  */
+/**
+ * POST /api/chat/rooms/:roomId/messages
+ * body: { type, text, mediaUrl }
+ */
 router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
   try {
     const userId = req.user._id;
@@ -311,6 +315,7 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
         .json({ message: "Media message requires mediaUrl" });
     }
 
+    // 1) Create message
     const message = await Message.create({
       room: roomId,
       sender: userId,
@@ -319,70 +324,69 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
       mediaUrl,
     });
 
+    // 2) Update room timestamp
     room.updatedAt = new Date();
     await room.save();
 
-const populated = await message.populate("sender", "username avatarUrl");
+    // 3) Populate sender fields (username, avatarUrl)
+    const populated = await message.populate("sender", "username avatarUrl");
 
-// 🔥 Socket event (already there)
-try {
-  const io = getIO();
-  io.to(roomId.toString()).emit("message:new", populated);
-} catch (e) {
-  console.error("Socket emit error:", e.message);
-}
-
-// 🔥 Push notifications
-try {
-  const roomPopulated = await ChatRoom.findById(roomId)
-    .populate("members", "username email fcmToken");
-
-  const senderIdStr = userId.toString();
-
-  for (const member of roomPopulated.members) {
-    if (member._id.toString() === senderIdStr) continue; // don't notify sender
-
-    let bodyPreview = "";
-    if (type === "text" && text?.trim()) {
-      bodyPreview = text.trim();
-    } else {
-      switch (type) {
-        case "image":
-          bodyPreview = "📷 Sent a photo";
-          break;
-        case "video":
-          bodyPreview = "🎬 Sent a video";
-          break;
-        case "audio":
-          bodyPreview = "🎙 Sent a voice message";
-          break;
-        case "file":
-          bodyPreview = "📎 Sent a file";
-          break;
-        default:
-          bodyPreview = "New message";
-      }
+    // 4) Emit real-time message over Socket.IO
+    try {
+      const io = getIO();
+      io.to(roomId.toString()).emit("message:new", populated);
+    } catch (e) {
+      console.error("Socket emit error:", e.message);
     }
 
-       await sendPushToUserIds(memberIds, {
-      title: senderName,
-      body: body || "New message",
-      data: {
-        type: "chat",
-        roomId: roomId.toString(),
-      },
-    });
-  }
-} catch (e) {
-  console.error("Chat push error:", e.message);
-}
+    // 5) Send push notifications to other members
+    try {
+      // all room members except the sender
+      const recipientIds = room.members
+        .map((m) => m.toString())
+        .filter((id) => id !== userId.toString());
 
-return res.status(201).json(populated);
+      if (recipientIds.length > 0) {
+        const senderName = populated.sender?.username || "New message";
 
+        let body = "";
+        switch (type) {
+          case "image":
+            body = "📷 Photo";
+            break;
+          case "video":
+            body = "🎬 Video";
+            break;
+          case "audio":
+            body = "🎙 Voice message";
+            break;
+          case "file":
+            body = "📎 File";
+            break;
+          default:
+            body = text || "New message";
+        }
+
+        await sendPushToUserIds(recipientIds, {
+          title: senderName,
+          body,
+          data: {
+            type: "chat",
+            roomId: roomId.toString(),
+          },
+        });
+      }
+    } catch (e) {
+      console.error("Chat push error:", e.message);
+    }
+
+    // 6) Final API response
+    return res.status(201).json(populated);
   } catch (err) {
     console.error("send message error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 export default router;
