@@ -7,7 +7,7 @@ import Project from "../models/Project.js";
 import Invitation from "../models/Invitation.js";
 import User from "../models/User.js";
 import ChatRoom from "../models/ChatRoom.js";
-import { sendPushToUserIds } from "../pushService.js";   // 👈 NEW
+import { sendPushToUser } from "../oneSignalService.js";
 
 const router = express.Router();
 
@@ -106,26 +106,23 @@ router.post(
       await project.save();
 
       // 4) Also add them to the project chat room
-      await ChatRoom.updateOne(
+    await ChatRoom.updateOne(
         { project: project._id },
         { $addToSet: { members: user._id } }
       );
 
-      // 🔔 Push notification to the newly added user
+      // 🔔 notify invited user
       try {
-        const ownerName = req.user.username || "Project update";
-
-        await sendPushToUserIds({
-          userIds: [user._id.toString()],
-          title: `Added to project: ${project.name}`,
-          body: `You were added by ${ownerName}`,
+        await sendPushToUser(user, {
+          heading: "You were added to a project",
+          content: `Project: ${project.name}`,
           data: {
-            type: "project",
+            type: "project_added",
             projectId: project._id.toString(),
           },
         });
-      } catch (e) {
-        console.error("Project invite push error:", e.message);
+      } catch (err) {
+        console.error("Project invite push error:", err.message);
       }
 
       res.status(200).json({

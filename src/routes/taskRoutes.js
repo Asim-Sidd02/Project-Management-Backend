@@ -3,8 +3,8 @@ import { auth } from "../middleware/auth.js";
 import { requireProjectRole } from "../middleware/roles.js"; // (you might not actually use this in this file)
 import Task from "../models/Task.js";
 import Project from "../models/Project.js";
-import { sendPushToUserIds } from "../pushService.js";   // 👈 NEW
-
+import { sendPushToUser } from "../oneSignalService.js";
+import User from "../models/User.js";
 const router = express.Router();
 
 // create task (owner/leader)
@@ -39,32 +39,37 @@ router.post("/", auth, async (req, res) => {
     });
 
     // 🔔 Push notification to all project members (except creator)
-    try {
-      const memberIds = [
-        project.owner,
-        ...project.members.map((m) => m.user)
-      ].map((id) => id.toString());
+   try {
+      const populatedProject = await Project.findById(projectId)
+        .populate("members.user", "username oneSignalIds")
+        .populate("owner", "username oneSignalIds");
 
-      const creatorId = req.user._id.toString();
-      const unique = Array.from(new Set(memberIds));
-      const recipientIds = unique.filter((id) => id !== creatorId);
+      const membersSet = new Map();
 
-      if (recipientIds.length) {
-        const creatorName = req.user.username || "New task";
+      membersSet.set(populatedProject.owner._id.toString(), populatedProject.owner);
 
-        await sendPushToUserIds({
-          userIds: recipientIds,
-          title: `New task in ${project.name}`,
-          body: `${creatorName} created: ${task.title}`,
+      populatedProject.members.forEach((m) => {
+        if (m.user) {
+          membersSet.set(m.user._id.toString(), m.user);
+        }
+      });
+
+      for (const [id, user] of membersSet.entries()) {
+        // don't notify creator if you don't want
+        if (id === req.user._id.toString()) continue;
+
+        await sendPushToUser(user, {
+          heading: `New task in ${populatedProject.name}`,
+          content: title,
           data: {
-            type: "task",
-            projectId: project._id.toString(),
+            type: "task_created",
+            projectId: projectId.toString(),
             taskId: task._id.toString(),
           },
         });
       }
-    } catch (e) {
-      console.error("Task create push error:", e.message);
+    } catch (err) {
+      console.error("Task push error:", err.message);
     }
 
     res.status(201).json(task);

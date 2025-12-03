@@ -5,7 +5,7 @@ import { auth as requireAuth } from "../middleware/auth.js";
 import Project from "../models/Project.js";
 import { getIO } from "../socket.js";
 import mongoose from "mongoose";
-import { sendPushToUserIds } from "./../pushService.js";
+import { sendPushToUser } from "../oneSignalService.js";
 
 
 
@@ -289,13 +289,13 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
     type = type || "text";
 
-    const room = await ChatRoom.findById(roomId);
+    const room = await ChatRoom.findById(roomId).populate("members", "username oneSignalIds");
     if (!room) {
       return res.status(404).json({ message: "Chat room not found" });
     }
 
     const isMember = room.members.some(
-      (m) => m.toString() === userId.toString()
+      (m) => m._id.toString() === userId.toString()
     );
     if (!isMember) {
       return res
@@ -315,7 +315,6 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
         .json({ message: "Media message requires mediaUrl" });
     }
 
-    // 1) Create message
     const message = await Message.create({
       room: roomId,
       sender: userId,
@@ -324,73 +323,66 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
       mediaUrl,
     });
 
-    // 2) Update room timestamp
     room.updatedAt = new Date();
     await room.save();
 
-    // 3) Populate sender fields (username, avatarUrl)
     const populated = await message.populate("sender", "username avatarUrl");
 
-    // 4) Emit real-time message over Socket.IO
-   // 🔥 Emit real-time event to all clients in this room
-try {
-  const io = getIO();
-  io.to(roomId.toString()).emit("message:new", populated);
-} catch (e) {
-  console.error("Socket emit error:", e.message);
-}
-
-// 5) Send push notifications to other members
-try {
-  // all room members except the sender
-  const recipientIds = room.members
-    .map((m) => m.toString())
-    .filter((id) => id !== userId.toString());
-
-  console.log("🔔 Chat push recipients:", recipientIds);
-
-  if (recipientIds.length > 0) {
-    const senderName = populated.sender?.username || "New message";
-
-    let body = "";
-    switch (type) {
-      case "image":
-        body = "📷 Photo";
-        break;
-      case "video":
-        body = "🎬 Video";
-        break;
-      case "audio":
-        body = "🎙 Voice message";
-        break;
-      case "file":
-        body = "📎 File";
-        break;
-      default:
-        body = text || "New message";
+    // 🔥 Socket emit (already there)
+    try {
+      const io = getIO();
+      io.to(roomId.toString()).emit("message:new", populated);
+    } catch (e) {
+      console.error("Socket emit error:", e.message);
     }
 
-    await sendPushToUserIds(recipientIds, {
-      title: senderName,
-      body,
-      data: {
-        type: "chat",
-        roomId: roomId.toString(),
-      },
-    });
-  }
-} catch (e) {
-  console.error("Chat push error:", e.message);
-}
+    // 🔔 OneSignal push to other members
+    try {
+      const senderName = populated.sender?.username || "Someone";
 
+      let preview = "";
+      switch (type) {
+        case "image":
+          preview = "📷 sent a photo";
+          break;
+        case "video":
+          preview = "🎬 sent a video";
+          break;
+        case "audio":
+          preview = "🎙 sent a voice message";
+          break;
+        case "file":
+          preview = "📎 sent a file";
+          break;
+        default:
+          preview = text || "New message";
+      }
 
-    // 6) Final API response
+      const heading = room.isProjectRoom
+        ? `Project: ${room.name}`
+        : `New message from ${senderName}`;
+
+      // send to all room members except sender
+      for (const member of room.members) {
+        if (member._id.toString() === userId.toString()) continue;
+        await sendPushToUser(member, {
+          heading,
+          content: preview,
+          data: {
+            type: "chat",
+            roomId: roomId.toString(),
+          },
+        });
+      }
+    } catch (err) {
+      console.error("Chat push error:", err.message);
+    }
+
     return res.status(201).json(populated);
   } catch (err) {
     console.error("send message error:", err.message);
     return res.status(500).json({ message: "Server error" });
   }
 });
-
 
 export default router;
