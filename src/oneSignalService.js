@@ -1,18 +1,19 @@
-// src/oneSignalService.js
 import axios from "axios";
 
 const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const ONE_SIGNAL_API_KEY = process.env.ONESIGNAL_API_KEY;
 
 if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_API_KEY) {
-  console.warn("⚠️ OneSignal env vars missing (ONESIGNAL_APP_ID / ONESIGNAL_API_KEY)");
+  console.warn(
+    "⚠️ OneSignal env vars missing (ONESIGNAL_APP_ID / ONE_SIGNAL_API_KEY)"
+  );
 }
 
 /**
- * Send push to specific OneSignal player IDs
+ * Sends a push notification to specific OneSignal player IDs
  */
 export async function sendPushToPlayers(
-  { playerIds = [], heading, content, data = {} } = {} // <-- default empty object
+  { playerIds = [], heading = "", content = "", data = {} } = {}
 ) {
   if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_API_KEY) return;
   if (!playerIds.length) return;
@@ -21,37 +22,40 @@ export async function sendPushToPlayers(
     const body = {
       app_id: ONE_SIGNAL_APP_ID,
       include_player_ids: playerIds,
-      headings: { en: heading },
-      contents: { en: content },
+      headings: { en: heading || "Notification" },
+      contents: { en: content || "" },
       data,
+      priority: 10,
     };
 
-    await axios.post("https://onesignal.com/api/v1/notifications", body, {
-      headers: {
-        Authorization: `Basic ${ONE_SIGNAL_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-    });
+    const resp = await axios.post(
+      "https://onesignal.com/api/v1/notifications",
+      body,
+      {
+        headers: {
+          Authorization: `Basic ${ONE_SIGNAL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    console.log("✅ OneSignal response:", resp.data);
   } catch (err) {
     console.error("OneSignal push error:", err.response?.data || err.message);
   }
 }
 
-
 /**
- * Send to a specific user but exclude the sender
+ * Send notification to user, excluding sender if needed
  */
-export async function sendPushToUser(user, senderPlayerId, { heading, content, data = {} }) {
+export async function sendPushToUser(
+  user,
+  { heading, content, data = {}, excludePlayerId }
+) {
   if (!user || !user.oneSignalIds || !user.oneSignalIds.length) return;
 
-  // Exclude sender's own Player ID
-  const receiverPlayerIds = user.oneSignalIds.filter(id => id !== senderPlayerId);
-  if (!receiverPlayerIds.length) return;
+  const playerIds = user.oneSignalIds.filter((id) => id !== excludePlayerId);
+  if (!playerIds.length) return;
 
-  return sendPushToPlayers({
-    playerIds: receiverPlayerIds,
-    heading,
-    content,
-    data,
-  });
+  return sendPushToPlayers({ playerIds, heading, content, data });
 }
