@@ -340,49 +340,49 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
     }
 
     // 🔔 OneSignal push to other members
-    try {
-      const senderName = populated.sender?.username || "Someone";
+  // 🔔 OneSignal push to other members
+try {
+  const senderName = populated.sender?.username || "Someone";
 
-      let preview = "";
-      switch (type) {
-        case "image":
-          preview = "📷 sent a photo";
-          break;
-        case "video":
-          preview = "🎬 sent a video";
-          break;
-        case "audio":
-          preview = "🎙 sent a voice message";
-          break;
-        case "file":
-          preview = "📎 sent a file";
-          break;
-        default:
-          preview = text || "New message";
-      }
+  let preview = "";
+  switch (type) {
+    case "image":
+      preview = "📷 sent a photo";
+      break;
+    case "video":
+      preview = "🎬 sent a video";
+      break;
+    case "audio":
+      preview = "🎙 sent a voice message";
+      break;
+    case "file":
+      preview = "📎 sent a file";
+      break;
+    default:
+      preview = text || "New message";
+  }
 
-      const heading = room.isProjectRoom
-        ? `Project: ${room.name}`
-        : `New message from ${senderName}`;
+  const heading = room.isProjectRoom
+    ? `Project: ${room.name}`
+    : `New message from ${senderName}`;
 
-      for (const member of room.members) {
-        // still skip sender as user (optional but safe)
-        // const isSender = member._id.toString() === userId.toString();
-          if (member._id.toString() === userId.toString()) continue;
-        await sendPushToUser(member, {
-          heading,
-          content: preview,
-          data: {
-            type: "chat",
-            roomId: roomId.toString(),
-          },
-          // ❗ If this member *is* the sender, exclude the current device
-          excludePlayerId: isSender ? oneSignalPlayerId : undefined,
-        });
-      }
-    } catch (err) {
-      console.error("Chat push error:", err.message);
-    }
+  // 👉 send only to other members (skip sender completely)
+  for (const member of room.members) {
+    if (member._id.toString() === userId.toString()) continue;
+
+    await sendPushToUser(member, {
+      heading,
+      content: preview,
+      data: {
+        type: "chat",
+        roomId: roomId.toString(),
+      },
+    });
+  }
+} catch (err) {
+  console.error("Chat push error:", err.message);
+}
+
 
     return res.status(201).json(populated);
   } catch (err) {
