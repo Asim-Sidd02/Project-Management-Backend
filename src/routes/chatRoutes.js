@@ -341,6 +341,7 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
     // 🔔 OneSignal push to other members
   // 🔔 OneSignal push to other members
+// 🔔 OneSignal push to other members (NOT the sender)
 try {
   const senderName = populated.sender?.username || "Someone";
 
@@ -366,10 +367,11 @@ try {
     ? `Project: ${room.name}`
     : `New message from ${senderName}`;
 
-  // 👉 send only to other members (skip sender completely)
+  // 🚫 HARD SKIP: Do not send push to sender user at all
   for (const member of room.members) {
-    if (member._id.toString() === userId.toString()) continue;
-      const isSender = member._id.toString() === userId.toString();
+    if (member._id.toString() === userId.toString()) {
+      continue; // <- THIS is the important line
+    }
 
     await sendPushToUser(member, {
       heading,
@@ -378,12 +380,12 @@ try {
         type: "chat",
         roomId: roomId.toString(),
       },
-          excludePlayerId: isSender ? oneSignalPlayerId : undefined,
     });
   }
 } catch (err) {
   console.error("Chat push error:", err.message);
 }
+
 
 
     return res.status(201).json(populated);
