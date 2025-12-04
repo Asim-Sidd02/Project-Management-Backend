@@ -367,7 +367,8 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
       for (const member of room.members) {
         // still skip sender as user (optional but safe)
-        const isSender = member._id.toString() === userId.toString();
+        // const isSender = member._id.toString() === userId.toString();
+          if (member._id.toString() === userId.toString()) continue;
         await sendPushToUser(member, {
           heading,
           content: preview,
