@@ -1,3 +1,4 @@
+
 import axios from "axios";
 
 const ONE_SIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
@@ -46,7 +47,8 @@ export async function sendPushToPlayers(
 }
 
 /**
- * Send notification to user, excluding sender if needed
+ * Send notification to a single user, optionally excluding one playerId
+ * (e.g. the current device of the sender).
  */
 export async function sendPushToUser(
   user,
@@ -54,7 +56,12 @@ export async function sendPushToUser(
 ) {
   if (!user || !user.oneSignalIds || !user.oneSignalIds.length) return;
 
-  const playerIds = user.oneSignalIds.filter((id) => id !== excludePlayerId);
+  let playerIds = user.oneSignalIds.filter(Boolean);
+
+  if (excludePlayerId) {
+    playerIds = playerIds.filter((id) => id !== excludePlayerId);
+  }
+
   if (!playerIds.length) return;
 
   return sendPushToPlayers({ playerIds, heading, content, data });

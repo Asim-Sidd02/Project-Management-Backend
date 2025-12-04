@@ -1,3 +1,4 @@
+
 import express from "express";
 import ChatRoom from "../models/ChatRoom.js";
 import Message from "../models/Message.js";
@@ -5,9 +6,7 @@ import { auth as requireAuth } from "../middleware/auth.js";
 import Project from "../models/Project.js";
 import { getIO } from "../socket.js";
 import mongoose from "mongoose";
-import { sendPushToUser } from "../oneSignalService.js";
-
-
+import { sendPushToPlayers } from "../oneSignalService.js";
 
 const router = express.Router();
 
@@ -275,24 +274,17 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
 /**
  * POST /api/chat/rooms/:roomId/messages
- * body: { type, text, mediaUrl }
- */
-/**
- * POST /api/chat/rooms/:roomId/messages
- * body: { type, text, mediaUrl }
+ * body: { type, text, mediaUrl, oneSignalPlayerId? }
  */
 router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
   try {
     const userId = req.user._id;
     const { roomId } = req.params;
-    let { type, text, mediaUrl, oneSignalPlayerId } = req.body; // 👈 add this
+    let { type, text, mediaUrl, oneSignalPlayerId } = req.body;
 
     type = type || "text";
 
-    const room = await ChatRoom.findById(roomId).populate(
-      "members",
-      "username oneSignalIds"
-    );
+    const room = await ChatRoom.findById(roomId).populate("members", "username oneSignalIds");
     if (!room) {
       return res.status(404).json({ message: "Chat room not found" });
     }
@@ -339,54 +331,68 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
       console.error("Socket emit error:", e.message);
     }
 
-    // 🔔 OneSignal push to other members
-  // 🔔 OneSignal push to other members
-// 🔔 OneSignal push to other members (NOT the sender)
-try {
-  const senderName = populated.sender?.username || "Someone";
+    // 🔔 OneSignal push to other members (excluding sender's device)
+    try {
+      const senderName = populated.sender?.username || "Someone";
 
-  let preview = "";
-  switch (type) {
-    case "image":
-      preview = "📷 sent a photo";
-      break;
-    case "video":
-      preview = "🎬 sent a video";
-      break;
-    case "audio":
-      preview = "🎙 sent a voice message";
-      break;
-    case "file":
-      preview = "📎 sent a file";
-      break;
-    default:
-      preview = text || "New message";
-  }
+      let preview = "";
+      switch (type) {
+        case "image":
+          preview = "📷 sent a photo";
+          break;
+        case "video":
+          preview = "🎬 sent a video";
+          break;
+        case "audio":
+          preview = "🎙 sent a voice message";
+          break;
+        case "file":
+          preview = "📎 sent a file";
+          break;
+        default:
+          preview = text || "New message";
+      }
 
-  const heading = room.isProjectRoom
-    ? `Project: ${room.name}`
-    : `New message from ${senderName}`;
+      const heading = room.isProjectRoom
+        ? `Project: ${room.name}`
+        : `New message from ${senderName}`;
 
-  // 🚫 HARD SKIP: Do not send push to sender user at all
-  for (const member of room.members) {
-    if (member._id.toString() === userId.toString()) {
-      continue; // <- THIS is the important line
+      // Collect playerIds for all OTHER members
+      let allPlayerIds = [];
+      for (const member of room.members) {
+        const isSenderUser = member._id.toString() === userId.toString();
+        if (isSenderUser) continue; // do not notify sender user
+
+        if (Array.isArray(member.oneSignalIds)) {
+          allPlayerIds.push(...member.oneSignalIds.filter(Boolean));
+        }
+      }
+
+      // remove sender's current device if passed
+      if (oneSignalPlayerId) {
+        allPlayerIds = allPlayerIds.filter((id) => id !== oneSignalPlayerId);
+      }
+
+      // dedupe
+      allPlayerIds = [...new Set(allPlayerIds)];
+
+      if (allPlayerIds.length) {
+        console.log("🔔 Chat push to playerIds:", allPlayerIds);
+        await sendPushToPlayers({
+          playerIds: allPlayerIds,
+          heading,
+          content: preview,
+          data: {
+            type: "chat",
+            roomId: roomId.toString(),
+          },
+        });
+      } else {
+        console.log("ℹ️ No OneSignal playerIds to notify for this chat message");
+      }
+    } catch (err) {
+      console.error("Chat push error:", err.message);
     }
-
-    await sendPushToUser(member, {
-      heading,
-      content: preview,
-      data: {
-        type: "chat",
-        roomId: roomId.toString(),
-      },
-    });
-  }
-} catch (err) {
-  console.error("Chat push error:", err.message);
-}
-
-
 
     return res.status(201).json(populated);
   } catch (err) {
@@ -394,6 +400,5 @@ try {
     return res.status(500).json({ message: "Server error" });
   }
 });
-
 
 export default router;
