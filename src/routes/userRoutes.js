@@ -18,7 +18,6 @@ router.get("/me", auth, async (req, res) => {
 });
 
 // PUT /api/users/me  -> update username and/or avatar (base64)
-// PUT /api/users/me
 router.put("/me", auth, async (req, res) => {
   try {
     const { username, avatarBase64 } = req.body;
@@ -51,6 +50,7 @@ router.put("/me", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
 // GET /api/users/search?query=username
 router.get("/search", auth, async (req, res) => {
   try {
@@ -70,7 +70,7 @@ router.get("/search", auth, async (req, res) => {
   }
 });
 
-
+// Store FCM token (if you still use Firebase Messaging)
 router.put("/push-token", auth, async (req, res) => {
   try {
     const { fcmToken } = req.body;
@@ -92,7 +92,7 @@ router.put("/push-token", auth, async (req, res) => {
 });
 
 /**
- * OPTIONAL: clear token on logout
+ * OPTIONAL: clear FCM token on logout
  * POST /api/users/clear-push-token
  */
 router.post("/clear-push-token", auth, async (req, res) => {
@@ -104,6 +104,42 @@ router.post("/clear-push-token", auth, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
+/**
+ * Bind OneSignal playerId to the current user.
+ * Ensures a given playerId belongs to ONLY this user.
+ *
+ * POST /api/users/onesignal
+ * body: { playerId: string }
+ */
+router.post("/onesignal", auth, async (req, res) => {
+  try {
+    const { playerId } = req.body;
+
+    if (!playerId) {
+      return res.status(400).json({ message: "playerId is required" });
+    }
+
+    // 1) Remove this playerId from ALL other users
+    await User.updateMany(
+      { oneSignalIds: playerId },
+      { $pull: { oneSignalIds: playerId } }
+    );
+
+    // 2) Attach it to the current user
+    await User.findByIdAndUpdate(
+      req.user._id,
+      { $addToSet: { oneSignalIds: playerId } },
+      { new: true }
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("onesignal bind error:", err.message);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 // PATCH /api/users/change-password
 router.patch("/change-password", auth, async (req, res) => {
   try {
