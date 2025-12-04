@@ -1,25 +1,16 @@
 // src/services/notificationService.js
 import admin from "firebase-admin";
-import User from "./models/User.js"; // adjust path if needed: "../models/User.js"
+import User from "./models/User.js";
 
-// ---- FIREBASE ADMIN INIT ----
+// ---- Initialize Firebase Admin ----
 if (!admin.apps.length) {
   try {
-    // Option 1: SERVICE_ACCOUNT_JSON in env (stringified JSON)
     if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-      const serviceAccount = JSON.parse(
-        process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-      );
-
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
       console.log("✅ Firebase Admin initialized from SERVICE_ACCOUNT_JSON");
     } else {
-      // Option 2: GOOGLE_APPLICATION_CREDENTIALS points to JSON file
-      admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
-      });
+      admin.initializeApp({ credential: admin.credential.applicationDefault() });
       console.log("✅ Firebase Admin initialized from default credentials");
     }
   } catch (e) {
@@ -28,39 +19,26 @@ if (!admin.apps.length) {
 }
 
 /**
- * Send push to all FCM tokens for a list of userIds
- * payload: { title, body, data? }
+ * Send FCM push notifications to multiple userIds, excluding the sender
+ * @param {Array<string>} userIds - recipient user IDs
+ * @param {string} senderId - MongoDB _id of sender
+ * @param {Object} payload - { title, body, data }
  */
-export async function sendPushToUserIds(userIds, payload) {
+export async function sendPushToUserIds(userIds, senderId, payload) {
   try {
-    if (!userIds || userIds.length === 0) {
-      console.log("📭 sendPushToUserIds: no userIds, skipping");
-      return;
-    }
+    if (!userIds || userIds.length === 0) return;
 
-    // Fetch FCM tokens from User documents
+    // Fetch users with FCM tokens
     const users = await User.find(
-      { _id: { $in: userIds } },
-      { fcmTokens: 1 }
+      { _id: { $in: userIds }, fcmTokens: { $ne: null } },
+      "fcmTokens _id"
     ).lean();
 
-    const tokens = [];
-    for (const u of users) {
-      if (Array.isArray(u.fcmTokens)) {
-        for (const t of u.fcmTokens) {
-          if (t && typeof t === "string") tokens.push(t);
-        }
-      }
-    }
+    const tokens = users
+      .flatMap(u => u.fcmTokens || [])
+      .filter(t => t && t !== senderId); // Exclude sender token
 
-    console.log(
-      `📬 sendPushToUserIds: users=${userIds.length}, tokens=${tokens.length}`
-    );
-
-    if (tokens.length === 0) {
-      console.log("📭 No FCM tokens, nothing to send");
-      return;
-    }
+    if (!tokens.length) return;
 
     const message = {
       notification: {
@@ -79,10 +57,7 @@ export async function sendPushToUserIds(userIds, payload) {
     if (resp.failureCount > 0) {
       resp.responses.forEach((r, idx) => {
         if (!r.success) {
-          console.warn(
-            `⚠️ FCM failure for token[${idx}]:`,
-            r.error?.message
-          );
+          console.warn(`⚠️ FCM failure for token[${idx}]:`, r.error?.message);
         }
       });
     }

@@ -9,19 +9,9 @@ if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_API_KEY) {
 }
 
 /**
- * Sends a push notification to specific OneSignal player IDs
- * @param {Object} options
- * @param {string[]} options.playerIds - OneSignal device IDs
- * @param {string} options.heading
- * @param {string} options.content
- * @param {Object} options.data - custom payload { type, roomId, projectId, ... }
+ * Send push to specific OneSignal player IDs
  */
-export async function sendPushToPlayers({
-  playerIds = [],
-  heading,
-  content,
-  data = {},
-}) {
+export async function sendPushToPlayers({ playerIds = [], heading, content, data = {} }) {
   if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_API_KEY) return;
   if (!playerIds.length) return;
 
@@ -46,13 +36,17 @@ export async function sendPushToPlayers({
 }
 
 /**
- * Send to all devices of specific userId
- * Assume User model has `oneSignalIds: [String]`
+ * Send to a specific user but exclude the sender
  */
-export async function sendPushToUser(user, { heading, content, data = {} }) {
+export async function sendPushToUser(user, senderPlayerId, { heading, content, data = {} }) {
   if (!user || !user.oneSignalIds || !user.oneSignalIds.length) return;
+
+  // Exclude sender's own Player ID
+  const receiverPlayerIds = user.oneSignalIds.filter(id => id !== senderPlayerId);
+  if (!receiverPlayerIds.length) return;
+
   return sendPushToPlayers({
-    playerIds: user.oneSignalIds,
+    playerIds: receiverPlayerIds,
     heading,
     content,
     data,
