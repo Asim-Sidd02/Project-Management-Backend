@@ -11,7 +11,9 @@ if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_API_KEY) {
 /**
  * Send push to specific OneSignal player IDs
  */
-export async function sendPushToPlayers({ playerIds = [], heading, content, data = {} }) {
+export async function sendPushToPlayers(
+  { playerIds = [], heading, content, data = {} } = {} // <-- default empty object
+) {
   if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_API_KEY) return;
   if (!playerIds.length) return;
 
@@ -34,6 +36,7 @@ export async function sendPushToPlayers({ playerIds = [], heading, content, data
     console.error("OneSignal push error:", err.response?.data || err.message);
   }
 }
+
 
 /**
  * Send to a specific user but exclude the sender
