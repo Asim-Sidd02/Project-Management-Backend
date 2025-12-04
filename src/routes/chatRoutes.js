@@ -285,11 +285,14 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
   try {
     const userId = req.user._id;
     const { roomId } = req.params;
-    let { type, text, mediaUrl } = req.body;
+    let { type, text, mediaUrl, oneSignalPlayerId } = req.body; // 👈 add this
 
     type = type || "text";
 
-    const room = await ChatRoom.findById(roomId).populate("members", "username oneSignalIds");
+    const room = await ChatRoom.findById(roomId).populate(
+      "members",
+      "username oneSignalIds"
+    );
     if (!room) {
       return res.status(404).json({ message: "Chat room not found" });
     }
@@ -328,7 +331,7 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
 
     const populated = await message.populate("sender", "username avatarUrl");
 
-    // 🔥 Socket emit (already there)
+    // 🔥 Socket emit
     try {
       const io = getIO();
       io.to(roomId.toString()).emit("message:new", populated);
@@ -362,9 +365,9 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
         ? `Project: ${room.name}`
         : `New message from ${senderName}`;
 
-      // send to all room members except sender
       for (const member of room.members) {
-        if (member._id.toString() === userId.toString()) continue;
+        // still skip sender as user (optional but safe)
+        const isSender = member._id.toString() === userId.toString();
         await sendPushToUser(member, {
           heading,
           content: preview,
@@ -372,6 +375,8 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
             type: "chat",
             roomId: roomId.toString(),
           },
+          // ❗ If this member *is* the sender, exclude the current device
+          excludePlayerId: isSender ? oneSignalPlayerId : undefined,
         });
       }
     } catch (err) {
@@ -384,5 +389,6 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 export default router;

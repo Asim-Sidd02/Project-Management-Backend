@@ -28,16 +28,19 @@ export async function sendPushToUserIds(userIds, senderId, payload) {
   try {
     if (!userIds || userIds.length === 0) return;
 
-    // Fetch users with FCM tokens
+    // 🔑 Remove senderId from the list of recipients
+    const recipientIds = userIds.filter(
+      (id) => String(id) !== String(senderId)
+    );
+    if (!recipientIds.length) return;
+
+    // Fetch users with FCM tokens (excluding sender)
     const users = await User.find(
-      { _id: { $in: userIds }, fcmTokens: { $ne: null } },
+      { _id: { $in: recipientIds }, fcmTokens: { $ne: null } },
       "fcmTokens _id"
     ).lean();
 
-    const tokens = users
-      .flatMap(u => u.fcmTokens || [])
-      .filter(t => t && t !== senderId); // Exclude sender token
-
+    const tokens = users.flatMap((u) => u.fcmTokens || []);
     if (!tokens.length) return;
 
     const message = {
