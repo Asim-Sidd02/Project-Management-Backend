@@ -50,7 +50,7 @@ app.get("/", (req, res) => {
   res.json({ status: "ok", message: "Sentinel API running" });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 
 // Initialize socket.io
 initSocket(httpServer);
