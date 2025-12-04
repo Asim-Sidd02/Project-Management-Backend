@@ -369,6 +369,7 @@ try {
   // 👉 send only to other members (skip sender completely)
   for (const member of room.members) {
     if (member._id.toString() === userId.toString()) continue;
+      const isSender = member._id.toString() === userId.toString();
 
     await sendPushToUser(member, {
       heading,
@@ -377,6 +378,7 @@ try {
         type: "chat",
         roomId: roomId.toString(),
       },
+          excludePlayerId: isSender ? oneSignalPlayerId : undefined,
     });
   }
 } catch (err) {
