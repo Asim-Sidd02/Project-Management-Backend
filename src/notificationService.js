@@ -2,7 +2,6 @@
 import admin from "firebase-admin";
 import User from "./models/User.js";
 
-// ---- Initialize Firebase Admin ----
 if (!admin.apps.length) {
   try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -20,7 +19,7 @@ if (!admin.apps.length) {
 
 /**
  * Send FCM push notifications to multiple userIds, excluding the sender
- * @param {Array<string>} userIds - recipient user IDs
+ * @param {Array<string>} userIds - recipient user IDs (Mongo _id strings)
  * @param {string} senderId - MongoDB _id of sender
  * @param {Object} payload - { title, body, data }
  */
@@ -28,13 +27,13 @@ export async function sendPushToUserIds(userIds, senderId, payload) {
   try {
     if (!userIds || userIds.length === 0) return;
 
-    // 🔑 Remove senderId from the list of recipients
+    // ✅ REMOVE SENDER FROM USER LIST
     const recipientIds = userIds.filter(
       (id) => String(id) !== String(senderId)
     );
     if (!recipientIds.length) return;
 
-    // Fetch users with FCM tokens (excluding sender)
+    // fetch only recipient users (no sender)
     const users = await User.find(
       { _id: { $in: recipientIds }, fcmTokens: { $ne: null } },
       "fcmTokens _id"
@@ -50,6 +49,8 @@ export async function sendPushToUserIds(userIds, senderId, payload) {
       },
       data: payload.data || {},
       tokens,
+      android: { priority: "high" },
+      apns: { headers: { "apns-priority": "10" } },
     };
 
     const resp = await admin.messaging().sendEachForMulticast(message);
